@@ -12,6 +12,7 @@
 import re
 from datetime import datetime
 from urllib.parse import unquote
+from locale import setlocale, LC_TIME
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Comment
@@ -136,7 +137,7 @@ class ExtractArticleData:
     def links(self):
         """ Возвращает список ссылок из статьи.
         Предполагается использовать при реализации скрапера.
-    
+
         """
         return self._links
 
@@ -312,12 +313,98 @@ class ExtractNakedscienceArticle(ExtractArticleData):
             })
 
 
+class ExtractTassArticle(ExtractArticleData):
+    """ Извлечение статей с ТАСС """
+
+    SOURCE_NAME = 'Тасс'
+    SOURCE_SITE = 'tass.ru'
+    MAIN_FND = 'main'
+
+    def _ext_date(self):
+
+        date_tag = 'div'
+        date_attrs = {"class": [
+            'ds_ext_marker-kFsBk',
+            'ds_ext_marker--font_weight_medium-wX2ql',
+            'ds_ext_marker--color_secondary-z2ssC'
+            ]}
+
+        date_frm = "%d %b %Y %H:%M%z"
+
+        source_date = self._main_tree.find(date_tag, attrs=date_attrs)
+
+        # Приводим дату в парсибельный вид.
+        date_list = source_date.getText(strip=True).replace('\xa0', ' ').split(' ')
+        date_list[1] = date_list[1][:3]
+        if not re.fullmatch('\d{4},', date_list[2]):
+            date_list.insert(2, str(datetime.now().year))
+        else:
+            date_list[2] = date_list[2][:-1] if date_list[2][-1] == ',' else date_list[2]
+        date_list[-1] += '+03:00'
+
+        # Поскольку дата по умолчанию в английском формате, а на сайте - по-русски,
+        # приходится менять локаль, сохраняя исходную, а затем её восстанавливать.
+
+        cur_format = setlocale(LC_TIME)
+        setlocale(LC_TIME, 'Russian_Russia.1251')
+        date = datetime.strptime(' '.join(date_list), date_frm)
+        self._date = date
+        setlocale(LC_TIME, cur_format)
+
+    def _ext_headline(self):
+
+        hl_tag = 'h1'
+
+        headline = self._main_tree.find(hl_tag)
+
+        self._headline = headline.get_text().strip()
+
+    def _ext_text(self):
+
+        txt_tag = 'article'
+        source_text = self._main_tree.find(txt_tag)
+        text = ''
+
+        for content in source_text.contents:
+
+            for lnk in content.findAll('a'):
+                link = lnk.get('href', False)
+                if link:
+                    self._links.append(unquote(link))
+                    if lnk.string:
+                        lnk.string += ' (' + unquote(link) + ')'
+                    else:
+                        lnk.append(' (' + unquote(link) + ')')
+
+            match content.name:
+                case 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6':
+                    text += '\n' + content.getText(strip=True) + '\n'*2
+                case 'ol' | 'ul':
+                    text += '\n* ' + content.getText('\n* ', strip=True) + '\n' * 2
+                case _:
+                    if content.strings:
+                        text += content.getText() + '\n'
+
+        self._text = text.strip().replace('\n\r\n', '\n').replace('\n'*3, '\n'*2)
+
+    def _extra_data(self):
+
+        tags_tag = 'a'
+        tags_attrs = {"class": "Tags_tag__tRSPs"}
+
+        source_tags = self._main_tree.findAll(tags_tag, attrs=tags_attrs)
+        tags = [t.string for t in source_tags]
+
+        self._info.update({'tags': tags})
+
+
 class ExtArt:
     """ Запускает нужный класс для загрузки статьи """
 
     SITE_CLASS = {
         'habr.com': ExtractHabrArticle,
-        'naked-science.ru': ExtractNakedscienceArticle
+        'naked-science.ru': ExtractNakedscienceArticle,
+        'tass.ru': ExtractTassArticle
     }
 
     def __call__(self, link, *args, **kwds):
