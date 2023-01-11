@@ -3,9 +3,9 @@
     Сборщик статей
     Описание:
         Набор инструментов для загрузки статей с поддерживаемых сайтов и манипуляции с ними.
-    Версия 0.1
+    Версия 0.21
     © Михаил Духонин
-    22.12.2022
+    22.12.2022 - 11.01.2023
 
 """
 
@@ -193,6 +193,15 @@ class ExtractHabrArticle(ExtractArticleData):
                     else:
                         lnk.append(' (' + unquote(link) + ')')
 
+            if content.name == 'br':
+                content.decompose()
+
+            for br in content.findAll('br'):
+                if br.name == 'br' and br.next_element.name == 'br':
+                    br.decompose()
+                else:
+                    br.replaceWith('\n')
+
             match content.name:
                 case 'pre' | 'code':
                     text += '\n' + content.getText() + '\n'*2
@@ -202,7 +211,7 @@ class ExtractHabrArticle(ExtractArticleData):
                     text += '\n* ' + content.getText('\n* ', strip=True) + '\n' * 2
                 case _:
                     if content.strings:
-                        text += content.getText() + '\n'
+                        text += content.getText().strip() + '\n'
 
         self._text = text.strip().replace('\n\r\n', '\n').replace('\n'*3, '\n'*2)
 

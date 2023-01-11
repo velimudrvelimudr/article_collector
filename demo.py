@@ -38,4 +38,4 @@ def article_export_to_text(urls: list) -> str:
 if __name__ == '__main__':
 
     with open('example.txt', 'w', encoding='utf-8', newline='') as result:
-        result.write(article_export_to_text(URLS[:7]))
+        result.write(article_export_to_text(URLS))
