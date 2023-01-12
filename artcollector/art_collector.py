@@ -3,19 +3,19 @@
     Сборщик статей
     Описание:
         Набор инструментов для загрузки статей с поддерживаемых сайтов и манипуляции с ними.
-    Версия 0.21
+    Версия 0.3
     © Михаил Духонин
-    22.12.2022 - 11.01.2023
+    22.12.2022 - 12.01.2023
 
 """
 
 import re
 from datetime import datetime
+from locale import LC_TIME, setlocale
 from urllib.parse import unquote
-from locale import setlocale, LC_TIME
 
 import requests
-from bs4 import BeautifulSoup, NavigableString, Comment
+from bs4 import BeautifulSoup, Comment, NavigableString
 
 
 class ExtractArticleData:
@@ -26,9 +26,11 @@ class ExtractArticleData:
     SOURCE_NAME = ''
     SOURCE_SITE = ''
     SOURCE_FULLNAME = ''
+
     MAIN_FND = ''
     MAIN_SEL = ''
     MAIN_ATTRS = {}
+
     FRM = "%d.%m.%Y %H:%M"
 
     def __init__(self, link: str) -> None:
@@ -68,7 +70,7 @@ class ExtractArticleData:
         return self._info[key]
 
     def __str__(self) -> str:
-        return (f"{self.date}, {self.source_name}, {self.author} "
+        return (f"{self.source_name}, {self.date} "
         f"{self.headline} <Полный текст> {self.link}")
 
     def _ext_date(self):
@@ -95,7 +97,7 @@ class ExtractArticleData:
         }
 
     def _extra_data(self):
-        """ Дополнительно извлекает теги статьи на Хабре. """
+        pass
 
     @property
     def date(self):
@@ -106,39 +108,44 @@ class ExtractArticleData:
     @property
     def source_name(self):
         """ Возвращает полное имя источника """
+
         return self._source_name
 
     @property
     def link(self):
         """ Возвращает ссылку на статью """
+
         return self._link
 
     @property
     def author(self):
         """ Возвращает автора статьи (если имеется) """
+
         return self._author
 
     @property
     def headline(self):
         """ Возвращает заголовок статьи """
+
         return self._headline
 
     @property
     def full_text(self):
         """ Возвращает полный текст статьи """
+
         return self._text
 
     @property
     def info(self) -> dict:
         """ Возвращает полную информацию о статье в виде словаря, включая дополнительные данные. """
+
         return self._info
 
     @property
     def links(self):
         """ Возвращает список ссылок из статьи.
-        Предполагается использовать при реализации скрапера.
+        Предполагается использовать при реализации скрапера. """
 
-        """
         return self._links
 
 
@@ -419,3 +426,70 @@ class ExtArt:
     def __call__(self, link, *args, **kwds):
         source = re.search(r'https?://w?w?w?\.?([\w\.-]*\.\w{2,})/', link)[1]
         return ExtArt.SITE_CLASS[source](link)
+
+class ArticleCollection:
+    """ Коллекция статей """
+
+    def __init__(self, collection_name: str='Статьи') -> None:
+
+        self.collection_name = collection_name
+
+        self._collection_data = []
+
+    def __iter__(self):
+        return iter(self._collection_data)
+
+    def __getitem__(self, value):
+        return self._collection_data[value]
+
+    def __len__(self):
+        return len(self._collection_data)
+
+    def load_from_urls(self, path_to_urls: str) -> int:
+        """ Получает путь к файлу со ссылками,
+        Извлекает данные статей по этим ссылкам,
+        Добавляет их в коллекцию,
+        Возвращает количество добавленных статей. """
+
+        art_factor = ExtArt()
+        size = len(self._collection_data)
+
+        with open(path_to_urls, 'r', encoding='utf-8') as file_urls:
+            urls = map(str.strip, file_urls.readlines())
+
+        for url in urls:
+            art = art_factor(url)
+            self._collection_data.append(art)
+
+        return len(self._collection_data) - size
+
+    def to(self, frm: str='txt') -> str:
+        """ возвращает коллекцию в указанном формате. """
+
+        match frm:
+            case 'txt':
+                return to_txt(self)
+            case _:
+                print('Неизвестный формат')
+
+def to_txt(collection: ArticleCollection) -> tuple:
+    """ Конвертирует коллекцию статей в текстовый формат. """
+
+    new_line = '\n'
+    toc = 'Содержание\n'
+    body = 'Полные тексты\n'
+
+    for art in collection:
+
+        header = (f"{art['source']}, {art['date']}, "
+            f"{f'{art.author}, ' if art.author else ''}{art.headline}{new_line}")
+
+        toc += header
+
+        body += (f"{new_line}###{new_line*2}{header}"
+            f"{'Теги: ' + ', '.join(art['tags']) + new_line if art.info.get('tags', False) else ''}"
+            f"{'Аннотация: ' + art['annotation'] + new_line if art.info.get('annotation', False) else ''}"
+            f"{art.link}{new_line}{art.full_text}{new_line}"
+            f"{f'Ссылки:{new_line}{new_line.join(art.links)}' if art.info.get('links', False) else ''}{new_line}")
+
+    return toc, body
