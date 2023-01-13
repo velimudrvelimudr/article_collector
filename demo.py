@@ -1,6 +1,6 @@
 """ Демонстрация работы сборщика статей. """
 
-from artcollector.art_collector import ArticleCollection
+from artcollector.art_collection import ArticleCollection
 
 
 if __name__ == '__main__':
