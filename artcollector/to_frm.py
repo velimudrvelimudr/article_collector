@@ -1,12 +1,29 @@
 """ Модуль to_frm.
     Описание: Функции сохранения ArtCollection из пакета artcollector в различные форматы.
     © Михаил Духонин
-    13.01.2023
+    13.01.2023 - 15.01.2023
 
 """
 
+from logging import getLogger
+
+import artcollector.aclogger
+
+log = getLogger(__name__)
+
+
 def to_txt(collection):
-    """ Конвертирует коллекцию статей в текстовый формат. """
+    """ Конвертирует коллекцию статей в текстовый формат.
+
+    collection: Коллекция статей.
+
+    Возвращает: кортеж из оглавления выгрузки и текстов с полными заголовками.
+
+    """
+
+    if len(collection) > 0 :
+        log.info('Пустая коллекция %s', collection.collection_name)
+        return ('', '')
 
     new_line = '\n'
     toc = 'Содержание\n'

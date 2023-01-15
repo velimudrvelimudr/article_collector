@@ -1,18 +1,23 @@
 """ Модуль sites.
     Описание: Обеспечивает поддержку сайтов пакета artcollector.
     © Михаил Духонин
-    13.01.2023
+    13.01.2023 - 15.01.2023
 
 """
 
 import re
 from datetime import datetime
 from locale import LC_TIME, setlocale
+from logging import getLogger
 from urllib.parse import unquote
 
 import requests
+from requests.exceptions import HTTPError, ReadTimeout
 from bs4 import BeautifulSoup, Comment, NavigableString
 
+import artcollector.aclogger
+
+log = getLogger(__name__)
 
 class ExtractArticleData:
     """ Извлекает данные статьи по ссылке.
@@ -33,11 +38,20 @@ class ExtractArticleData:
 
         self._link = link
 
-        response = requests.get(self._link, timeout=10, headers={'User-Agent':
-        f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
-        f'Chrome/106.0.0.0 YaBrowser/22.11.5.715 Yowser/2.5 Safari/537.36'})
+        try:
+            response = requests.get(self._link, timeout=10, headers={'User-Agent':
+            f'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+            f'Chrome/106.0.0.0 YaBrowser/22.11.5.715 Yowser/2.5 Safari/537.36'})
+        except ReadTimeout:
+            log.fatal('На ссылке %s сработал таймауд', self._link, exc_info=True)
+            raise
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except HTTPError:
+            log.fatal('Ссылка %s Битая. Код ошибки %s.', self._link, response.status_code, exc_info=True)
+            raise
+
         raw_data = response.text
 
         self._html_tree = BeautifulSoup(raw_data, 'html.parser')
@@ -420,5 +434,19 @@ class ExtArt:
     }
 
     def __call__(self, link, *args, **kwds):
-        source = re.search(r'https?://w?w?w?\.?([\w\.-]*\.\w{2,})/', link)[1]
-        return ExtArt.SITE_CLASS[source](link)
+
+        source = re.search(r'https?://w?w?w?\.?([\w\.-]*\.\w{2,})/', link)
+
+        if not source:
+            log.warning('Некорректная ссылка %s', link)
+            return
+
+        if source [1]in self.SITE_CLASS:
+            try:
+                return self.SITE_CLASS[source[1]](link)
+            except (HTTPError, ReadTimeout):
+                log.warning('Не удалось загрузить %s', link, exc_info=True)
+                return
+        else:
+            log.warning('Ресурс %s не поддерживается', source[1])
+            return
