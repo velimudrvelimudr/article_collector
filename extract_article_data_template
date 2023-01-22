@@ -1,0 +1,88 @@
+""" Шаблон класса для извлечения статьи по ссылке. """
+
+class ExtractSourceArticle(ExtractArticleData):
+    """ Извлечение статей с  """
+
+    SOURCE_NAME = ''
+    SOURCE_SITE = ''
+
+    MAIN_FND = ''
+    MAIN_ATTRS = {}
+    MAIN_SEL = ''
+
+    def _ext_date(self):
+        date_tag = ''
+        date_attr = ''
+        date_attrs = {}
+        date_frm = "%Y-%m-%dT%H:%M:%S.%Z"
+
+        source_date = self._main_tree.find(date_tag)[date_attr]
+        date = datetime.strptime(source_date, date_frm)
+
+        self._date = date
+
+    def _ext_author(self):
+        author_tag = ''
+        author_attrs = {}
+
+        author = self._main_tree.find(author_tag, attrs=author_attrs)
+
+        self._author = author.get_text().strip()
+
+    def _ext_headline(self):
+
+        hl_tag = 'h1'
+
+        headline = self._main_tree.find(hl_tag)
+
+        self._headline = headline.get_text().strip()
+
+    def _ext_text(self):
+
+        txt_sel = ''
+        txt_tag = ''
+        source_text = self._main_tree.select(txt_sel)[0]
+        source_text = self._main_tree.find(txt_tag)
+        text = ''
+
+        for content in source_text.contents:
+
+            for lnk in content.findAll('a'):
+                link = lnk.get('href', False)
+                if link:
+                    self._links.append(unquote(link))
+                    if lnk.string:
+                        lnk.string += ' (' + unquote(link) + ')'
+                    else:
+                        lnk.append(' (' + unquote(link) + ')')
+
+            match content.name:
+                case 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6':
+                    text += '\n' + content.getText(strip=True) + '\n'*2
+                case 'ol' | 'ul':
+                    text += '\n* ' + content.getText('\n* ', strip=True) + '\n' * 2
+                case _:
+                    if content.strings:
+                        text += content.getText() + '\n'
+
+        self._text = text.strip().replace('\n'*3, '\n'*2)
+
+
+    def _extra_data(self):
+
+        tags_tag = ''
+        tags_attrs = {}
+        ann_attr = ''
+
+        source_tags = self._main_tree.find(attrs=tags_attrs)
+        source_tags = self._main_tree.findAll(tags_tag, attrs=tags_attrs)
+        source_ann = self._main_tree.select(ann_attr)[0]
+
+        tags = [t.string for t in source_tags]
+        tags = source_tags.getText('\n', strip=True).split('\n')
+        annotation = source_ann.getText(strip=True)
+
+        self._info.update({
+            'tags': tags,
+            'annotation': annotation
+            })

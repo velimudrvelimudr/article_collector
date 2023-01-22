@@ -23,6 +23,8 @@ class ArticleCollection:
 
         self._collection_data = []
 
+        self._collection_urls = []
+
     def __iter__(self):
         return iter(self._collection_data)
 
@@ -49,13 +51,18 @@ class ArticleCollection:
             return len(self._collection_data) - size
 
         for url in urls:
+            if url in self._collection_urls:
+                log.info('Статья по ссылке %s уже присутствует в коллекции', url)
+                continue
+
             art = art_factor(url)
             if art:
                 self._collection_data.append(art)
+                self._collection_urls.append(url)
             else:
                 log.warning('Статья по ссылке %s не выгрузилась', url)
 
-        return len(self._collection_data) - size
+        return len(self) - size
 
     def to(self, frm: str='txt'):
         """ Конвертирует коллекцию в указанный формат. """

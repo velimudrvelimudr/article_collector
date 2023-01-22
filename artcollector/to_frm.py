@@ -21,7 +21,7 @@ def to_txt(collection):
 
     """
 
-    if len(collection) > 0 :
+    if len(collection) == 0 :
         log.info('Пустая коллекция %s', collection.collection_name)
         return ('', '')
 

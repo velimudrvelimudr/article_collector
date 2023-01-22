@@ -13,20 +13,21 @@ from urllib.parse import unquote
 
 import requests
 from requests.exceptions import HTTPError, ReadTimeout
-from bs4 import BeautifulSoup, Comment, NavigableString
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 import artcollector.aclogger
 
 log = getLogger(__name__)
 
 class ExtractArticleData:
-    """ Извлекает данные статьи по ссылке.
+    """ Базовый класс, содержащий основную логику извлечения статей по ссылкам.
+        Не предназначен для создания экземпляра.
+        Работа с конкретными сайтами реализуется в потомках.
 
     """
 
     SOURCE_NAME = ''
     SOURCE_SITE = ''
-    SOURCE_FULLNAME = ''
 
     MAIN_FND = ''
     MAIN_SEL = ''
@@ -49,7 +50,8 @@ class ExtractArticleData:
         try:
             response.raise_for_status()
         except HTTPError:
-            log.fatal('Ссылка %s Битая. Код ошибки %s.', self._link, response.status_code, exc_info=True)
+            log.fatal('Ссылка %s Битая. Код ошибки %s.', self._link, response.status_code,
+            exc_info=True)
             raise
 
         raw_data = response.text
@@ -61,7 +63,7 @@ class ExtractArticleData:
         elif self.MAIN_SEL:
             self._main_tree = self._html_tree.select(self.MAIN_SEL)[0]
 
-        self._source_name = f"{self.SOURCE_NAME} ({self.SOURCE_SITE})"
+        self._source_name = f'{self.SOURCE_NAME} ({self.SOURCE_SITE})'
         self._date = None
         self._author = None
         self._headline = None
@@ -158,6 +160,28 @@ class ExtractArticleData:
 
         return self._links
 
+    @staticmethod
+    def link_processing(tag, links_list):
+        """ Получает элемент страницыи список.
+        Ищет внутри переданного элемента ссылки и добавляет в конце их текста URL в скобках.
+        Добавляет полученные URL'ы в список links_list.
+        Возвращает None.
+
+        """
+
+        if not isinstance(tag, Tag):
+            return
+
+        for lnk in tag.findAll('a'):
+            link = lnk.get('href', False)
+            if link:
+                links_list.append(unquote(link))
+                if lnk.string:
+                    lnk.string += ' (' + unquote(link) + ')'
+                else:
+                    lnk.append(' (' + unquote(link) + ')')
+
+
 
 class ExtractHabrArticle(ExtractArticleData):
     """ Извлечение статей с Хабра """
@@ -174,6 +198,7 @@ class ExtractHabrArticle(ExtractArticleData):
 
         source_date = self._main_tree.find(date_tag)[date_attr]
         date = datetime.strptime(f"{source_date[0:-5]}.UTC", date_frm)
+
         self._date = date
 
     def _ext_author(self):
@@ -201,14 +226,7 @@ class ExtractHabrArticle(ExtractArticleData):
 
         for content in source_text.contents:
 
-            for lnk in content.findAll('a'):
-                link = lnk.get('href', False)
-                if link:
-                    self._links.append(unquote(link))
-                    if lnk.string:
-                        lnk.string += ' (' + unquote(link) + ')'
-                    else:
-                        lnk.append(' (' + unquote(link) + ')')
+            self.link_processing(content, self._links)
 
             if content.name == 'br':
                 content.decompose()
@@ -286,23 +304,16 @@ class ExtractNakedscienceArticle(ExtractArticleData):
 
         art_content = source_text.contents
 
-        [content.extract() for content in art_content
-        if isinstance(content, (NavigableString, Comment))
-        or content.get('class', False) == ['ads_single']]
-        [content.extract() for content in art_content
-        if isinstance(content, (NavigableString, Comment))
-        or content.get('class', False) == ['ads_single']]
+        for content in art_content:
+            if isinstance(content, (NavigableString, Comment)) or content.get('class', False) == ['ads_single']:
+                content.extract()
+        for content in art_content:
+            if isinstance(content, (NavigableString, Comment)) or content.get('class', False) == ['ads_single']:
+                content.extract()
 
         for content in art_content:
 
-            for lnk in content.findAll('a'):
-                link = lnk.get('href', False)
-                if link:
-                    self._links.append(unquote(link))
-                    if lnk.string:
-                        lnk.string += ' (' + unquote(link) + ')'
-                    else:
-                        lnk.append(' (' + unquote(link) + ')')
+            self.link_processing(content, self._links)
 
             match content.name:
                 case 'pre' | 'code':
@@ -393,14 +404,8 @@ class ExtractTassArticle(ExtractArticleData):
 
         for content in source_text.contents:
 
-            for lnk in content.findAll('a'):
-                link = lnk.get('href', False)
-                if link:
-                    self._links.append(unquote(link))
-                    if lnk.string:
-                        lnk.string += ' (' + unquote(link) + ')'
-                    else:
-                        lnk.append(' (' + unquote(link) + ')')
+            self.link_processing(content, self._links)
+
 
             match content.name:
                 case 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6':
@@ -423,6 +428,84 @@ class ExtractTassArticle(ExtractArticleData):
 
         self._info.update({'tags': tags})
 
+class ExtractInoSMIArticle(ExtractArticleData):
+    """ Извлечение статей с inosmi.ru. """
+
+    SOURCE_NAME = 'ИноСМИ'
+    SOURCE_SITE = 'inosmi.ru'
+
+    MAIN_SEL = '#content'
+
+    def _ext_date(self):
+        date_tag = 'div'
+        date_attrs = {'itemprop': 'datePublished'}
+        date_frm = "%Y-%m-%dT%H:%M"
+
+        source_date = self._main_tree.find(date_tag, attrs=date_attrs)
+        date = datetime.strptime(source_date.getText(), date_frm)
+
+        self._date = date
+
+    def _ext_author(self):
+        author_tag = 'div'
+        author_attrs = {'class': 'article__authors'}
+
+        author = self._main_tree.find(author_tag, attrs=author_attrs)
+
+        self._author = author.get_text().strip()
+
+    def _ext_headline(self):
+
+        hl_tag = 'h1'
+
+        headline = self._main_tree.find(hl_tag)
+
+        self._headline = headline.get_text().strip()
+
+    def _ext_text(self):
+
+        txt_sel = 'div.article__body'
+        source_text = self._main_tree.select(txt_sel)[0]
+        text = ''
+
+        for content in source_text.contents:
+            if content.strings and content.name == 'div' and content.get('data-type', '') == 'text':
+                self.link_processing(content, self._links)
+                text += content.getText() + '\n'
+            if content.strings and content.name == 'div' and content.get('data-type', '') == 'article':
+                # Вставки отсылок к предыдущим статьям по теме.
+                text += '\n' + content.select('a.article__article-link')[0].getText('\n', strip=True) + '\n'
+                text += content.select('div.article__article-source')[0].getText(', ', strip=True) + ', '
+                text += content.select('div.article__article-info')[0].getText(strip=True) + '\n'
+                text += 'https://inosmi.ru' + content.select('a.article__article-link')[0]['href'] + '\n'*2
+                self._links.append(content.select('a.article__article-link')[0]['href'])
+
+        self._text = text.strip().replace('\n'*3, '\n'*2)
+
+
+    def _extra_data(self):
+
+        tags_tag = 'div'
+        tags_attrs = {'itemprop': 'articleSection'}
+        ann_tag = 'div'
+        ann_attrs = {'class':'article__announce-text'}
+
+        source_tags = self._main_tree.findAll(tags_tag, attrs=tags_attrs)
+        source_ann = self._main_tree.find(ann_tag, attrs=ann_attrs)
+
+        tags = [t.string for t in source_tags]
+        annotation = source_ann.getText(strip=True)
+
+        # Добавляем в список связанных ссылок ссылку на оригинал статьи.
+        self._links.append(
+            self._main_tree.find('div', attrs={'class':'article__info-original'}).find('a')['href']
+        )
+
+        self._info.update({
+            'tags': tags,
+            'annotation': annotation
+            })
+
 
 class ExtArt:
     """ Запускает нужный класс для загрузки статьи """
@@ -430,7 +513,8 @@ class ExtArt:
     SITE_CLASS = {
         'habr.com': ExtractHabrArticle,
         'naked-science.ru': ExtractNakedscienceArticle,
-        'tass.ru': ExtractTassArticle
+        'tass.ru': ExtractTassArticle,
+        'inosmi.ru': ExtractInoSMIArticle
     }
 
     def __call__(self, link, *args, **kwds):
